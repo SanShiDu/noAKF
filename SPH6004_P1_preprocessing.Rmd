@@ -1,0 +1,177 @@
+---
+title: "SPH6004_A1_preprocessing"
+output: html_document
+date: "2024-03-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load all the packages
+```{r}
+library(readxl)
+library(reshape)
+library(writexl)
+library(openxlsx)
+library(skimr)
+library(dplyr)
+library(ggplot2)
+library(fastDummies)
+```
+
+then we load the data and check the data complete rate
+```{r}
+raw_input <- read_excel("E:/yixuan/SPH6004/Received data/sph6004_assignment1_data.xls")
+skim(raw_input)
+```
+
+then, classified the acute kidney failure into have or not
+```{r}
+raw_input$aki_binary <-ifelse(raw_input$aki == 0, 0, 1)
+index_aki <- which(names(raw_input) == "aki")
+new_order <- c(names(raw_input)[1:index_aki], "aki_binary", names(raw_input)[(index_aki+1):(ncol(raw_input)-1)])
+raw_input <- raw_input[new_order]
+```
+
+next, we check the data complete rate of all the parameters
+
+```{r}
+raw_input_parameter <- raw_input[,4:163]
+raw_input_parameter_skim <- skim(raw_input_parameter)
+
+ggplot(raw_input_parameter_skim, aes(x = complete_rate)) +
+  geom_histogram(binwidth = 0.01, fill = "#69b3a2", color = "black") +
+  labs(title = "Histogram of Data Complete Rate", x = "Complete Rate (%)", y = "Frequency") +
+  theme_minimal()
+```
+have a check on the parameters with the lowest complete rate
+```{r}
+raw_input_parameter_completeness <- cbind(raw_input_parameter_skim$skim_variable,raw_input_parameter_skim$complete_rate)
+```
+
+
+we also examine the ratio between different aki (pretty balanced)
+
+```{r}
+aki_count <- table(raw_input$aki)
+pie(aki_count, 
+    col = c("#aaddd6", "#5db3a8", "#197e76", "#004c42"),
+    main = "Percentage of aki severity")
+```
+
+we standardize the numerical parameters
+```{r}
+raw_input_numerical <- raw_input[,c(5,7:163)]
+
+```
+
+```{r}
+raw_input_numerical_refill_stand <- as.data.frame(lapply(raw_input_numerical, function(x) {
+  if(is.numeric(x)) {
+    median_value <- median(x, na.rm = TRUE)
+    mean_value <- mean(x, na.rm = TRUE)
+    sd_value <- sd(x, na.rm = TRUE)
+
+    x[is.na(x)] <- median_value
+    
+    (x - mean_value) / sd_value
+  } else {
+    x
+  }
+}))
+
+
+raw_input_numerical_refill_stand$outlier <- 0
+for (parameter in names(raw_input_numerical_refill_stand)){
+  if(parameter != "outlier") {
+    raw_input_numerical_refill_stand$outlier <- ifelse(
+      abs(raw_input_numerical_refill_stand[[parameter]])>4,1,raw_input_numerical_refill_stand$outlier
+    )
+  }
+}
+
+```
+
+we convert the gender and ethinicity column into binary input and conbine with numerical paramters
+
+```{r}
+stand_input <- raw_input
+stand_input$outlier <- 0
+stand_input[,c(5,7:164)] <- raw_input_numerical_refill_stand
+
+stand_input_encoded_race <- fastDummies::dummy_cols(stand_input, select_columns = 'race', remove_selected_columns = TRUE)
+stand_input_encoded <- fastDummies::dummy_cols(stand_input_encoded_race, select_columns = 'gender', remove_selected_columns = TRUE)
+```
+
+there are two logistic parameters
+```{r}
+stand_input_encoded$thrombin_min <- ifelse(is.na(stand_input_encoded$thrombin_min),0, ifelse(stand_input_encoded$thrombin_min == TRUE,1,0))
+stand_input_encoded$thrombin_max <- ifelse(is.na(stand_input_encoded$thrombin_max),0, ifelse(stand_input_encoded$thrombin_max == TRUE,1,0))
+
+#stand_input_encoded_skim <- skim(stand_input_encoded)
+
+stand_input_center <- subset(stand_input_encoded, is.na(outlier))
+stand_input_processed <- stand_input_center[, !names(stand_input_center) %in% c("outlier")]
+```
+
+
+
+we split the data in 60:30:10 (training:testing:validation) following aki ratio in the entire population
+```{r}
+stand_input_proc_aki0 <- subset(stand_input_processed, aki==0)
+stand_input_proc_aki1 <- subset(stand_input_processed, aki==1)
+stand_input_proc_aki2 <- subset(stand_input_processed, aki==2)
+stand_input_proc_aki3 <- subset(stand_input_processed, aki==3)
+
+```
+
+```{r}
+input_dataframes <- list(stand_input_proc_aki0,stand_input_proc_aki1,stand_input_proc_aki2,stand_input_proc_aki3)
+
+split_60_training <- list()
+split_30_testing <- list()
+split_10_validation <- list()
+
+for (i in seq_along(input_dataframes)) {
+  df <- input_dataframes[[i]]
+  
+  # Number of rows in the dataset
+  n <- nrow(df)
+  
+  # Shuffle indices
+  shuffled_indices <- sample(n)
+  
+  # Calculate split sizes
+  size_10 <- round(0.10 * n)
+  size_30 <- round(0.30 * n)
+  
+  # Create the splits based on shuffled indices
+  indices_10 <- shuffled_indices[1:size_10]
+  indices_30 <- shuffled_indices[(size_10 + 1):(size_10 + size_30)]
+  indices_60 <- shuffled_indices[(size_10 + size_30 + 1):n]
+  
+  # Extract the subsets
+  split_10_validation[[i]] <- df[indices_10, ]
+  split_30_testing[[i]] <- df[indices_30, ]
+  split_60_training[[i]] <- df[indices_60, ]
+}
+
+```
+
+rebuild the sets
+```{r}
+validation_df <- rbind(split_10_validation[[1]],split_10_validation[[2]],split_10_validation[[3]],split_10_validation[[4]])
+
+testing_df <- rbind(split_30_testing[[1]],split_30_testing[[2]],split_30_testing[[3]],split_30_testing[[4]])
+
+training_df <- rbind(split_60_training[[1]],split_60_training[[2]],split_60_training[[3]],split_60_training[[4]])
+
+```
+
+```{r}
+write.csv(validation_df, file = "E:/yixuan/SPH6004/validation.csv")
+write.csv(testing_df, file = "E:/yixuan/SPH6004/test.csv")
+write.csv(training_df, file = "E:/yixuan/SPH6004/train.csv")
+```
+
