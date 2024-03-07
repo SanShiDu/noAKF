@@ -126,15 +126,31 @@ stand_input_proc_aki3 <- subset(stand_input_processed, aki==3)
 
 ```
 
+alternative, we can try to make the data more balanced
 ```{r}
-input_dataframes <- list(stand_input_proc_aki0,stand_input_proc_aki1,stand_input_proc_aki2,stand_input_proc_aki3)
+stand_input_proc_aki_0 <- subset(stand_input_processed, aki_binary==0)
+stand_input_proc_aki_1 <- subset(stand_input_processed, aki_binary==1)
+set.seed(123)
+rows_to_remove <- nrow(stand_input_proc_aki_1) / 2
+rows_to_keep <- sample(seq_len(nrow(stand_input_proc_aki_1)), size = rows_to_remove)
+
+# Subset the dataframe to keep only the selected rows
+stand_input_proc_aki_1 <- stand_input_proc_aki_1[rows_to_keep, ]
+
+```
+
+
+```{r}
+#input_dataframes <- list(stand_input_proc_aki0,stand_input_proc_aki1,stand_input_proc_aki2,stand_input_proc_aki3)
+input_dataframes_bal <- list(stand_input_proc_aki_0,stand_input_proc_aki_1)
+
 
 split_60_training <- list()
 split_30_testing <- list()
 split_10_validation <- list()
 
-for (i in seq_along(input_dataframes)) {
-  df <- input_dataframes[[i]]
+for (i in seq_along(input_dataframes_bal)) {
+  df <- input_dataframes_bal[[i]]
   
   # Number of rows in the dataset
   n <- nrow(df)
@@ -159,7 +175,7 @@ for (i in seq_along(input_dataframes)) {
 
 ```
 
-rebuild the sets
+rebuild the sets (imbalanced)
 ```{r}
 validation_df <- rbind(split_10_validation[[1]],split_10_validation[[2]],split_10_validation[[3]],split_10_validation[[4]])
 
@@ -169,9 +185,19 @@ training_df <- rbind(split_60_training[[1]],split_60_training[[2]],split_60_trai
 
 ```
 
+rebuild the sets (balanced)
 ```{r}
-write.csv(validation_df, file = "E:/yixuan/SPH6004/validation.csv")
-write.csv(testing_df, file = "E:/yixuan/SPH6004/test.csv")
-write.csv(training_df, file = "E:/yixuan/SPH6004/train.csv")
+validation_df <- rbind(split_10_validation[[1]],split_10_validation[[2]])
+
+testing_df <- rbind(split_30_testing[[1]],split_30_testing[[2]])
+
+training_df <- rbind(split_60_training[[1]],split_60_training[[2]])
+
+```
+
+```{r}
+write.csv(validation_df, file = "E:/yixuan/SPH6004/validation_bal.csv")
+write.csv(testing_df, file = "E:/yixuan/SPH6004/test_bal.csv")
+write.csv(training_df, file = "E:/yixuan/SPH6004/train_bal.csv")
 ```
 
